@@ -4,16 +4,18 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sync"
+	"time"
 )
 
 const (
-	workerCount  = 6       // Number of threads/workers
+	workerCount  = 20      // Number of threads/workers
 	payloadSize  = 16      // Size of the brute force payload in bytes
 	maxUintValue = 1 << 40 // Maximum range for brute force (adjust as needed)
 )
 
 func main() {
 	// Target hash for "Satoshi Nakamoto"
+	startTime := time.Now()
 	targetHash := hash([]byte("Satoshi Nakamoto"))
 
 	var result []byte
@@ -46,7 +48,10 @@ func main() {
 				if h == targetHash {
 					result = make([]byte, len(bruteforce))
 					copy(result, bruteforce)
+					endTime := time.Now()
+					elapsed := endTime.Sub(startTime)
 					fmt.Printf("Hash collision found!\n")
+					fmt.Printf("\tTime taken: %s\n", elapsed)
 					fmt.Printf("\tdata: hex: %x, str: %s\n", bruteforce, bruteforce)
 					fmt.Printf("\tOriginal hash: %x\n", targetHash)
 					fmt.Printf("\tCollision payload: %x\n", result)
