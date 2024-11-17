@@ -102,13 +102,6 @@ func splitRange(workerCount int) [][2][payloadSize]byte {
 	return ranges
 }
 
-func intToBytes(num *big.Int, size int) [payloadSize]byte {
-	var result [payloadSize]byte
-	bytes := num.FillBytes(make([]byte, size))
-	copy(result[:], bytes)
-	return result
-}
-
 func incArray(array []byte, max []byte) ([]byte, bool) {
 	for i := len(array) - 1; i >= 0; i-- {
 		array[i]++
@@ -126,50 +119,3 @@ func incArray(array []byte, max []byte) ([]byte, bool) {
 func hash(data []byte) [32]byte {
 	return sha256.Sum256(data)
 }
-
-// func GenRanges(size int, workerCount uint64) [][]byte {
-// 	// Create a slice of slices (dynamic 2D array)
-// 	ranges := make([][]byte, workerCount)
-
-// 	for i := 0; i < int(workerCount); i++ {
-// 		ranges[i] = make([]byte, size)
-// 	}
-
-// 	var index float64 = 0
-
-// 	for i := 0; i < int(workerCount); i++ {
-// 		quotient := float64(size) / float64(workerCount)
-// 		_, div := math.Modf(index)
-// 		// fmt.Printf("%d, %f, %f, %f\n", i, index, quotient, div)
-// 		if div == 0 {
-// 			ranges[int(i)][int(index)] = 255
-// 		} else {
-// 			ranges[int(i)][int(index)] = uint8(255 / div)
-// 		}
-// 		index += quotient
-// 	}
-// 	return ranges
-// }
-
-// func appendStartAndEnd(size int, ranges [][]byte) [][]byte {
-// 	return append(
-// 		append(
-// 			[][]byte{make([]byte, size)},
-// 			reverseSlice(ranges)...),
-// 		genByteArray(size, 0xff))
-// }
-
-// func genByteArray(size int, value uint8) []byte {
-// 	byteArray := make([]byte, size)
-// 	for i := 0; i < size; i++ {
-// 		byteArray[i] = value
-// 	}
-// 	return byteArray
-// }
-
-// func reverseSlice[T any](slice []T) []T {
-// 	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
-// 		slice[i], slice[j] = slice[j], slice[i]
-// 	}
-// 	return slice
-// }
