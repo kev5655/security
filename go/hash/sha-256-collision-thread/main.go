@@ -76,19 +76,15 @@ func main() {
 }
 
 func splitRange(workerCount int) [][2][payloadSize]byte {
-	// Total range (2^128)
-	totalRange := new(big.Int).Lsh(big.NewInt(1), 16*8)
+	totalRange := new(big.Int).Lsh(big.NewInt(1), payloadSize*8)
 	// fmt.Printf("totalRange :%s\n", totalRange.Text(16))
 
-	// Step size: Total range divided by worker count
 	step := new(big.Int).Div(totalRange, big.NewInt(int64(workerCount)))
 	// fmt.Printf("step: %s\n\n", step.Text(16))
 
-	// Create ranges as a 2D array
 	ranges := make([][2][payloadSize]byte, workerCount)
 
 	for i := 0; i < workerCount; i++ {
-		// Calculate start and end of the range
 		start := new(big.Int).Mul(step, big.NewInt(int64(i)))
 		// fmt.Printf("start: %s bitlen: %d\n", start.Text(16), start.BitLen())
 		end := new(big.Int).Mul(step, big.NewInt(int64(i+1)))
@@ -99,9 +95,8 @@ func splitRange(workerCount int) [][2][payloadSize]byte {
 		var fixedEnd [payloadSize]byte
 		copy(fixedEnd[:], end.Bytes())
 
-		// Populate the 2D array with start and end
-		ranges[i][0] = fixedStart //intToBytes(start, payloadSize) // Start
-		ranges[i][1] = fixedEnd   //intToBytes(end, payloadSize)   // End
+		ranges[i][0] = fixedStart
+		ranges[i][1] = fixedEnd
 	}
 
 	return ranges
@@ -109,7 +104,7 @@ func splitRange(workerCount int) [][2][payloadSize]byte {
 
 func intToBytes(num *big.Int, size int) [payloadSize]byte {
 	var result [payloadSize]byte
-	bytes := num.FillBytes(make([]byte, size)) // Ensures all leading zeros are included
+	bytes := num.FillBytes(make([]byte, size))
 	copy(result[:], bytes)
 	return result
 }
