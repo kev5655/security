@@ -49,7 +49,7 @@ func main() {
 					fmt.Printf("Thread %d: Current addr: %x End range: %x\n", workerID, start, end)
 				default:
 					start, endReached := incArray(start, end)
-					input := fmt.Sprintf("%s%d", transaction, start)
+					input := fmt.Sprintf("%s%s", transaction, start)
 					// fmt.Printf("id: %d calc hash: %x\n", workerID, start)
 					h := hash([]byte(input))
 					if strings.HasPrefix(h, targetPrefix) {
@@ -58,7 +58,7 @@ func main() {
 
 						fmt.Printf("Hash found with 7 zeros!\n")
 						fmt.Printf("\tTime taken: %s\n", elapsed)
-						fmt.Printf("\tdata: hex: %x, str: %s\n", start, start)
+						fmt.Printf("\thash input: %s hash output: %s\n\n", input, h)
 					}
 
 					if endReached {
