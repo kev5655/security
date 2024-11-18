@@ -13,7 +13,7 @@ import (
 
 const (
 	workerCount  = 2
-	size         = 32
+	size         = 8
 	targetPrefix = "0000000"
 	transaction  = "Alice,Bob,$100"
 )
@@ -49,16 +49,17 @@ func main() {
 					fmt.Printf("Thread %d: Current addr: %x End range: %x\n", workerID, start, end)
 				default:
 					start, endReached := incArray(start, end)
-					input := fmt.Sprintf("%s%s", transaction, start)
+					input := append([]byte(transaction), start...)
+					// input := fmt.Sprintf("%s%s", transaction, start)
 					// fmt.Printf("id: %d calc hash: %x\n", workerID, start)
-					h := hash([]byte(input))
+					h := hash(input)
 					if strings.HasPrefix(h, targetPrefix) {
 						endTime := time.Now()
 						elapsed := endTime.Sub(startTime)
 
 						fmt.Printf("Hash found with 7 zeros!\n")
 						fmt.Printf("\tTime taken: %s\n", elapsed)
-						fmt.Printf("\thash input: %s hash output: %s\n\n", input, h)
+						fmt.Printf("\thash input as string: %s input: as hex %x hash output: %s\n\n", input, input, h)
 					}
 
 					if endReached {
