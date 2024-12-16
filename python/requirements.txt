@@ -1,2 +1,4 @@
 cryptography==44.0.0
 pysqlite3==0.5.4
+sympy==1.13.3
+ipykernel==6.29.5
