@@ -1,0 +1,4 @@
+
+
+SERVER_PORT = 8000
+CA_PORT = 8001
