@@ -1,9 +1,25 @@
 {
-    "cSpell.words": [
-        "Nakamoto",
-        "Satoshi"
-    ]
-    "python.analysis.autoImportCompletions": true,
-    "CodeGPT.apiKey": "CodeGPT Plus Beta",
-    "python.analysis.typeCheckingMode": "basic"
+  "cSpell.words": [
+    "dataclasses",
+    "fastapi",
+    "ipykernel",
+    "Nakamoto",
+    "pysqlite",
+    "Satoshi",
+    "secp",
+    "sympy",
+    "urandom",
+    "uvicorn",
+    "Wichtrach"
+  ],
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "standard",
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": true
+    }
+  },
+  "isort.args": ["--profile", "black"]
 }

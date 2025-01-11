@@ -4,3 +4,6 @@ sympy==1.13.3
 ipykernel==6.29.5
 fastapi==0.115.6
 uvicorn==0.34.0
+dataclasses-json==0.6.7
+requests==2.32.3
+isort==5.13.2
