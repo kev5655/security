@@ -4,13 +4,16 @@ import uvicorn
 
 app = FastAPI()
 
+
 @app.get("/")
 def root():
     return {"name": "server"}
 
 
-@app.post("/ClientHello"):
+@app.post("/ClientHello")
+def clientHello():
     pass
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=SERVER_PORT)
