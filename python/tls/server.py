@@ -1,7 +1,8 @@
 import requests
 import uvicorn
 from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI
@@ -14,7 +15,13 @@ from schema import (
     ServerHello,
 )
 from settings import CA_PORT, SERVER_PORT
-from shared import get_key_pair, get_random
+from shared import (
+    CERT_FOLDER,
+    SERVER_CERTIFICATE_PEM,
+    SERVER_KEY_PEM,
+    get_key_pair,
+    get_random,
+)
 
 app = FastAPI(title="Server")
 
@@ -56,7 +63,7 @@ def clientHello(resp: ClientHello):
 
 @app.get("/certificate")
 def get_certificate():
-    with open("./server_cert.pem", "rb") as cert_file:
+    with open(SERVER_CERTIFICATE_PEM, "rb") as cert_file:
         cert_data = cert_file.read()
 
     return {"certificate": cert_data.decode("utf-8")}
@@ -64,7 +71,7 @@ def get_certificate():
 
 if __name__ == "__main__":
 
-    private_key = Ed25519PrivateKey.generate()
+    private_key = ec.generate_private_key(ec.SECP256R1())
 
     csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
         # Provide various details about who we are.
@@ -79,7 +86,7 @@ if __name__ == "__main__":
             x509.DNSName("my-tls-server.com")
         ]),
         critical=False,
-    ).sign(private_key, None)
+    ).sign(private_key, hashes.SHA256())
 
     csrPayload = CertificateSigningRequest(
         certificate=csr.public_bytes(
@@ -100,11 +107,11 @@ if __name__ == "__main__":
         print("Certificate PEM:", certificate_data.certificate)
 
         # Save the certificate to a file
-        with open("./server_cert.pem", "w") as cert_file:
+        with open(SERVER_CERTIFICATE_PEM, "w") as cert_file:
             cert_file.write(certificate_data.certificate)
 
         # Save the private key to a file
-        with open("./server_key.pem", "wb") as key_file:
+        with open(SERVER_KEY_PEM, "wb") as key_file:
             key_file.write(
                 private_key.private_bytes(
                     encoding=serialization.Encoding.PEM,

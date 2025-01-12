@@ -1,18 +1,23 @@
 
 import base64
+import datetime
 import os
-from shutil import ExecError
-from typing import Dict, List
+import traceback
+from types import TracebackType
+from typing import Dict, List, Tuple
 
 import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+from cryptography.x509 import Certificate, DNSName
+from cryptography.x509.verification import PolicyBuilder, Store, VerificationError
 from pydantic import ValidationError
 from schema import ClientHello, ExtensionClient, KeyShare, ServerHello
 from settings import SERVER_PORT
-from shared import get_key_pair, get_random
+from shared import CA_CERT_PEM, get_key_pair, get_random
 
 
 def client_hello(server_url: str) -> ServerHello:
@@ -63,43 +68,68 @@ def create_client_hello(public_key: X25519PublicKey, random: bytes, cipher_suite
     )
 
 def check_server_cert(server_url: str):
+    # Fetch the server
+    server_cert = get_server_cert(server_url)
+    # inspect_certificate(server_cert)
+
+    # Load the CA certificate
+    ca_cert = get_ca_server_cert()
+    
+    store = Store([ca_cert])
+    builder = PolicyBuilder().store(store)
+    
+    builder = builder.time(datetime.datetime.now())
+    verifier = builder.build_server_verifier(DNSName("my-tls-server.com"))
+    # verifier = PolicyBuilder().store(store)
+    # chain = verifier.verify(server_cert, [])
+    try:
+        chain = verifier.verify(server_cert, [])
+        print("Certificate is valid!")
+        print(f"Validated chain: {chain}")
+    except VerificationError as e:
+        # Print full stack trace
+        # print("Verification failed! Full stack trace:")
+        # print(traceback.format_exc())
+
+        # Print the full server certificate details
+        # print("\n=== Server Certificate Details ===")
+        # print(server_cert.public_bytes(serialization.Encoding.PEM).decode("utf-8"))
+
+        # Print the CA certificate details
+        # print("\n=== CA Certificate Details ===")
+        # print(ca_cert.public_bytes(serialization.Encoding.PEM).decode("utf-8"))
+
+        raise Exception(f"Error verifying a valid chain cannot be constructed: {e}")
+    except Exception as e:
+        raise Exception(f"Error verifying: {e}")
+    
+    
+def inspect_certificate(cert: x509.Certificate):
+    print("Extensions in certificate:")
+    for ext in cert.extensions:
+        print(f"- {ext.oid}: Critical={ext.critical}, Value={ext.value}")
+    
+def get_server_cert(server_url) -> Certificate:
     resp = requests.get(f"{server_url}/certificate")
     
     if not resp.ok:
         raise Exception(f"Failed get certificate form server {resp.status_code} {
             resp.reason}. Response content: {resp.text}")
     
-    try:
-        # Get the server certificate from the response
-        server_cert_raw = resp.json().get("certificate")
-        if not server_cert_raw:
-            raise ValueError("No certificate found in the server response.")
+     # Get the server certificate from the response
+    server_cert_raw = resp.json().get("certificate")
+    if not server_cert_raw:
+        raise ValueError("No certificate found in the server response.")
 
-        # Load the server certificate
-        server_cert = x509.load_pem_x509_certificate(server_cert_raw.encode("utf-8"))
+    # Load the server certificate
+    return x509.load_pem_x509_certificate(server_cert_raw.encode("utf-8"))
+    
+def get_ca_server_cert() -> Certificate:
+    with open(CA_CERT_PEM, "rb") as f:
+        return x509.load_pem_x509_certificate(f.read())
 
-        # Load the CA certificate
-        with open("./certificate.pem", "rb") as f:
-            ca_cert = x509.load_pem_x509_certificate(f.read())
-
-        # Get the public key from the CA certificate (must be Ed25519)
-        ca_public_key = ca_cert.public_key()
-        if not isinstance(ca_public_key, Ed25519PublicKey):
-            raise TypeError("The CA public key is not an Ed25519 key.")
-
-        # Verify the server certificate signature
-        ca_public_key.verify(
-            server_cert.signature,  # The signature from the server certificate
-            server_cert.tbs_certificate_bytes,  # The signed data
-        )
-        print("Server certificate verified successfully.")
-    except Exception as e:
-        raise Exception(f"Error verifying server certificate: {e}")
-        
-        
-        
 
 if __name__ == "__main__":
     server_url = f"http://127.0.0.1:{SERVER_PORT}"
     server_hello = client_hello(server_url)
-    server_cert = check_server_cert(server_url)
+    check_server_cert(server_url)    
