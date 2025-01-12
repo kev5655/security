@@ -1,6 +1,8 @@
 {
   "cSpell.words": [
     "dataclasses",
+    "decryptor",
+    "encryptor",
     "fastapi",
     "ipykernel",
     "Nakamoto",
@@ -13,7 +15,7 @@
     "Wichtrach"
   ],
   "python.analysis.autoImportCompletions": true,
-  "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.typeCheckingMode": "strict",
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.formatOnSave": true,

@@ -1,9 +1,12 @@
 
 from dataclasses import dataclass
 from typing import List, Literal, TypeAlias
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from pydantic import BaseModel
 
+from cryptography.hazmat.primitives.asymmetric.x25519 import (
+    X25519PrivateKey,
+    X25519PublicKey,
+)
+from pydantic import BaseModel
 
 # https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ec/
 # https://www.rfc-editor.org/rfc/rfc8446#section-4.2.7
@@ -21,7 +24,7 @@ class ExtensionClient(BaseModel):
     supported_groups: List[Groupe_ECDHE]
     key_share: KeyShare
     signature_algorithms: List[str]
-    supported_version: List[TLS_Version]
+    highest_tls_version: TLS_Version
 
 
 class ClientHello(BaseModel):
@@ -39,9 +42,19 @@ class ServerHello(BaseModel):
     version: TLS_Version
     server_random: str
     session_id: str
-    cipher_suites: List[str]
+    cipher_suites: str
     extension: ExtensionServer
+    certificate: str
+    
 
+class CertificateRequest(BaseModel):
+    certificate: str
+
+class Finished(BaseModel):
+    cipher_text: str
+    iv: str
+    tag: str
+    
 
 @dataclass
 class KeyPair:
@@ -49,5 +62,4 @@ class KeyPair:
     public_key: X25519PublicKey
 
 
-class CertificateSigningRequest(BaseModel):
-    certificate: str
+

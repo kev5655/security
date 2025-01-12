@@ -5,13 +5,11 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.x509 import Name
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi import FastAPI
-from schema import CertificateSigningRequest
-from settings import CA_PORT
-from shared import CA_CERT_PEM, CA_KEY_PEM
+from schema import CertificateRequest
+from shared import CA_CERT_PEM, CA_KEY_PEM, CA_PORT
 
 app = FastAPI()
     # Lade die CSR
@@ -23,7 +21,7 @@ def root():
 
 
 @app.post("/sign-certificate")
-def sign_certificate(req: CertificateSigningRequest):
+def sign_certificate(req: CertificateRequest):
 
     # Lade den Root-CA-Schlüssel
     with open(CA_KEY_PEM, "rb") as key_file:
@@ -93,7 +91,7 @@ def sign_certificate(req: CertificateSigningRequest):
             critical=False
         ).sign(root_private_key, hashes.SHA256())
 
-    return CertificateSigningRequest(
+    return CertificateRequest(
         certificate=certificate.public_bytes(serialization.Encoding.PEM).decode("utf-8"))
 
 
