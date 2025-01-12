@@ -1,6 +1,6 @@
 
 import os
-from typing import Any, List
+from typing import List
 
 import requests
 import uvicorn
@@ -106,7 +106,6 @@ def send_finish():
     if shared_key == None:
         raise Exception("Key exchange are not successfully")
     
-    print(shared_key.hex())
     handshake_data = merge_handshake(handshake_messages)
     digest = hashes.Hash(hashes.SHA3_256())
     digest.update(handshake_data)
@@ -146,7 +145,7 @@ def finish(req: Finished):
         raise Exception("Key exchange are not successfully")
     
     algo = algorithms.AES256(shared_key)
-    cipher = Cipher(algo, modes.GCM(bytes.fromhex(req.iv), bytes.fromhex( req.tag)))
+    cipher = Cipher(algo, modes.GCM(bytes.fromhex(req.iv), bytes.fromhex(req.tag)))
     decryptor = cipher.decryptor()
     
     finished_mac = decryptor.update(bytes.fromhex(req.cipher_text)) + decryptor.finalize()
@@ -169,18 +168,34 @@ def finish(req: Finished):
     
         
 @app.post("/message")
-def message(data: Any):
-    # Encrypt Message
-    # Print
-    # Decrypt Message
-    return data
+def message(req: Finished):
+    if shared_key == None:
+        raise Exception("Key exchange are not successfully")
+    algo = algorithms.AES256(shared_key)
+    cipher = Cipher(algo, modes.GCM(bytes.fromhex(req.iv), bytes.fromhex(req.tag)))
+    decryptor = cipher.decryptor()
+    
+    plain_text = decryptor.update(bytes.fromhex(req.cipher_text)) + decryptor.finalize()
+    
+    print("Plain_text (raw as string):", plain_text.decode("utf-8") if isinstance(plain_text, bytes) else str(plain_text))
+    
+    response_message = b"I HAVE RECEIVED YOUR MESSAGE THANKS\n" + plain_text
+    
+    iv = os.urandom(12)
+    algo = algorithms.AES256(shared_key)
+    cipher = Cipher(algo, modes.GCM(iv))
+    encryptor = cipher.encryptor()
+    
+    cipher_text = encryptor.update(response_message) + encryptor.finalize()
+    tag = encryptor.tag
 
-# @app.get("/certificate")
-# def get_certificate():
-#     with open(SERVER_CERTIFICATE_PEM, "rb") as cert_file:
-#         cert_data = cert_file.read()
-
-#     return {"certificate": cert_data.decode("utf-8")}
+    msg = Finished(
+        cipher_text=cipher_text.hex(),
+        iv=iv.hex(),
+        tag=tag.hex()
+    )
+    
+    return Response(status_code=200, content=msg.model_dump_json())
 
 if __name__ == "__main__":
 

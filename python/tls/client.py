@@ -3,7 +3,7 @@ import base64
 import datetime
 import os
 import threading
-from typing import Any, List
+from typing import List
 
 import requests
 import uvicorn
@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.x509 import Certificate, DNSName
 from cryptography.x509.verification import PolicyBuilder, Store, VerificationError
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from schema import ClientHello, ExtensionClient, Finished, KeyShare, ServerHello
 from shared import (
     CA_CERT_PEM,
@@ -43,13 +43,6 @@ def client_hello():
 
     if not resp.ok:
         raise raise_request("Client", "/ClientHello", resp)
-
-    # try:
-    #     server_hello = ServerHello(**resp.json())
-    #     return server_hello
-    # except ValidationError as e:
-    #     raise Exception(f"Validation failed: {resp.status_code} {
-    #         resp.reason}. Response content: {resp.text}")
 
 @app.post("/ServerHello")
 def server_hello(resp: ServerHello):
@@ -93,7 +86,6 @@ def finished(req: Finished, background_tasks: BackgroundTasks):
     if shared_key is None:
         raise Exception("Key exchange are not successfully")
     
-    print(shared_key.hex())
     algo = algorithms.AES256(shared_key)
     cipher = Cipher(algo, modes.GCM(bytes.fromhex(req.iv), bytes.fromhex( req.tag)))
     decryptor = cipher.decryptor()
@@ -162,11 +154,57 @@ def send_finish():
         raise raise_request("Client", "/Finished", resp)
 
 @app.post("/send-to-server")
-def send_to_server(data: Any):
-    # Print Message
-    # Decrypt
-    print("Client send send-to-server")
-    requests.post(f"{SERVER_URL}/message", json=data)
+async def send_to_server(req: Request):
+    if shared_key == None:
+        raise Exception("Key exchange are not successfully")
+
+    data = await req.body()
+    
+    data_string = str(data)
+    print("Data (raw as string):", data_string)
+
+    iv = os.urandom(12)
+    algo = algorithms.AES256(shared_key)
+    cipher = Cipher(algo, modes.GCM(iv))
+    encryptor = cipher.encryptor()
+    
+    cipher_text = encryptor.update(data) + encryptor.finalize()
+    tag = encryptor.tag
+
+    msg = Finished(
+        cipher_text=cipher_text.hex(),
+        iv=iv.hex(),
+        tag=tag.hex()
+    )
+    
+    print("Encrypted:", cipher_text.hex())
+    
+    print(f"Client send send-to-server {msg.model_dump()}")
+    resp = requests.post(f"{SERVER_URL}/message", json=msg.model_dump())
+    
+    if not resp.ok:
+        raise raise_request("Client", "/message", resp)
+    
+    try:
+        json_data = resp.json()  # JSON-Daten parsen
+        print("Server response (raw):", json_data)
+
+        # JSON zu Finished parsen
+        finished = Finished.model_validate(json_data)
+        print("Parsed Finished:", finished)
+    except ValueError as e:  # Falls die Antwort kein JSON ist
+        print("Server response (raw):", resp.text)
+        raise Exception(e)
+
+    
+    algo = algorithms.AES256(shared_key)
+    cipher = Cipher(algo, modes.GCM(bytes.fromhex(finished.iv), bytes.fromhex(finished.tag)))
+    decryptor = cipher.decryptor()
+    
+    plain_text = decryptor.update(bytes.fromhex(finished.cipher_text)) + decryptor.finalize()
+    
+    print("Plain_text (raw as string):", str(plain_text))
+    
     
 
 def get_cipher_suites() -> List[str]:
@@ -194,42 +232,6 @@ def create_client_hello(public_key: X25519PublicKey, random: bytes, cipher_suite
             highest_tls_version="TLS 1.3",
         )
     )
-
-# def check_server_cert():
-#     # Fetch the server
-#     server_cert = get_server_cert()
-
-#     # Load the CA certificate
-#     ca_cert = get_ca_server_cert()
-    
-#     store = Store([ca_cert])
-#     builder = PolicyBuilder().store(store)
-    
-#     builder = builder.time(datetime.datetime.now())
-#     verifier = builder.build_server_verifier(DNSName("my-tls-server.com"))
-#     try:
-#         chain = verifier.verify(server_cert, [])
-#         print("Certificate is valid!")
-#         print(f"Validated chain: {chain}")
-#     except VerificationError as e:
-#         raise Exception(f"Error verifying a valid chain cannot be constructed: {e}")
-#     except Exception as e:
-#         raise Exception(f"Error verifying: {e}")
-    
-# def get_server_cert() -> Certificate:
-#     resp = requests.get(f"{SERVER_URL}/certificate")
-    
-#     if not resp.ok:
-#         raise Exception(f"Failed get certificate form server {resp.status_code} {
-#             resp.reason}. Response content: {resp.text}")
-    
-#      # Get the server certificate from the response
-#     server_cert_raw = resp.json().get("certificate")
-#     if not server_cert_raw:
-#         raise ValueError("No certificate found in the server response.")
-
-#     # Load the server certificate
-#     return x509.load_pem_x509_certificate(server_cert_raw.encode("utf-8"))
     
 def get_ca_server_cert() -> Certificate:
     with open(CA_CERT_PEM, "rb") as f:
@@ -240,13 +242,10 @@ def run_server():
     uvicorn.run(app, host="127.0.0.1", port=CLIENT_PORT)
 
 if __name__ == "__main__":
-    # Start the server in a separate thread
     server_thread = threading.Thread(target=run_server)
     server_thread.start()
 
-    # Wait for the server to start (optional: use a small delay)
     import time
     time.sleep(0.5)
 
-    # Run the client hello logic
     client_hello()
