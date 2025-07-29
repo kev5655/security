@@ -9,12 +9,14 @@
 
 <body>
     <script type="module">
-        import init, { add, greet } from "./pkg/my_wasm_lib.js";
+        import init, { add, greet, encrypt } from "./pkg/my_wasm_lib.js";
         await init();               // Important for "web" target
         console.log(add(1, 10));
         console.log(greet("World"));
+        let result = encrypt(27);
+        console.log("Encrypted result: ", result);
+        console.log("Type of: ", typeof result);
     </script>
-
 </body>
 
 </html>

@@ -1,5 +1,7 @@
 mod utils;
 
+use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
 use wasm_bindgen::prelude::*;
 
 // Optional: console.log from Rust
@@ -25,4 +27,18 @@ pub fn add(a: i32, b: i32) -> i32 {
 #[wasm_bindgen]
 pub fn greet(name: &str) -> String {
     format!("Hello, {name} 👋")
+}
+
+#[wasm_bindgen]
+pub fn encrypt(data: u8) -> Vec<u8> {
+    let config = ConfigBuilder::default().build();
+
+    // Client-side
+    let (client_key, server_key) = generate_keys(config);
+
+    let clear_a = data;
+
+    let a = FheUint8::encrypt(clear_a, &client_key);
+
+    return bincode::serialize(&a).expect("serialize ciphertext");
 }
