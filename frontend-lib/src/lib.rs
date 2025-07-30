@@ -4,6 +4,9 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
 use wasm_bindgen::prelude::*;
 
+use bincode::config::standard;
+use bincode::serde::{decode_from_slice, encode_to_vec};
+
 // Optional: console.log from Rust
 #[wasm_bindgen]
 extern "C" {
@@ -30,15 +33,10 @@ pub fn greet(name: &str) -> String {
 }
 
 #[wasm_bindgen]
-pub fn encrypt(data: u8) -> Vec<u8> {
-    let config = ConfigBuilder::default().build();
+pub fn encrypt(data: u8, serialized_key: Vec<u8>) -> Vec<u8> {
+    const clientKey = Shortint.deserialize_client_key(serializedKey);
 
-    // Client-side
-    let (client_key, server_key) = generate_keys(config);
-
-    let clear_a = data;
-
-    let a = FheUint8::encrypt(clear_a, &client_key);
+    let a = FheUint8::encrypt(data, &clientKey);
 
     return bincode::serialize(&a).expect("serialize ciphertext");
 }

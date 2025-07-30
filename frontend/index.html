@@ -8,14 +8,39 @@
 </head>
 
 <body>
+    <input type="number" placeholder="Type something...">
+    <button id="sendBtn">Send</button>
+    <a id="output"></a>
+
     <script type="module">
-        import init, { add, greet, encrypt } from "./pkg/my_wasm_lib.js";
-        await init();               // Important for "web" target
-        console.log(add(1, 10));
-        console.log(greet("World"));
-        let result = encrypt(27);
-        console.log("Encrypted result: ", result);
-        console.log("Type of: ", typeof result);
+        import init, { encrypt } from "./pkg/my_wasm_lib.js";
+        let clientKey = new Uint8Array()
+
+        await init(); // Ensure WASM is initialized
+
+        async function sendInput() {
+            const input = document.querySelector('input[type="number"]').value;
+            const inputInt = parseInt(input, 10);
+            const result = encrypt(inputInt, clientKey);
+            console.log("Encrypted result: ", result);
+            const outputElement = document.getElementById("output");
+            outputElement.textContent = "Encrypted result: " + result;
+        }
+
+        async function register() {
+            const response = await fetch("http://localhost:8080/api/v1/registration");
+
+            if (response.ok) {
+                const data = await response.json();
+                clientKey = Uint8Array.from(data.client_key);;
+                console.log("Registration successful:", data);
+            } else {
+                console.error("Registration failed:", response.statusText);
+            }
+        }
+        await register();
+
+        document.getElementById("sendBtn").addEventListener("click", sendInput);
     </script>
 </body>
 
