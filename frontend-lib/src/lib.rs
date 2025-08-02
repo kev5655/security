@@ -34,7 +34,7 @@ pub fn greet(name: &str) -> String {
 
 #[wasm_bindgen]
 pub fn encrypt(data: u8, serialized_key: Vec<u8>) -> Vec<u8> {
-    const clientKey = Shortint.deserialize_client_key(serializedKey);
+    let clientKey = Shortint.deserialize_client_key(serializedKey);
 
     let a = FheUint8::encrypt(data, &clientKey);
 

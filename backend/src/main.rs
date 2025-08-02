@@ -1,24 +1,47 @@
 use actix_cors::Cors;
-use actix_web::http::header;
+use actix_web::Result;
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 
+use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2_KS_PBS;
+use tfhe::shortint::{Ciphertext, ClientKey, ServerKey, gen_keys};
+
 use bincode::config::standard;
 use bincode::serde::{decode_from_slice, encode_to_vec};
+use serde::{Deserialize, Serialize};
 
-use tfhe::{ConfigBuilder, generate_keys, set_server_key};
+// use tfhe::{ConfigBuilder, generate_keys, set_server_key};
 
-use actix_web::Result;
-use serde::Serialize;
+// use serde::Serialize;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 struct AppState {
-    client_key: Arc<tfhe::ClientKey>,
+    client_key: Arc<tfhe::shortint::ClientKey>,
+    server_key: Arc<tfhe::shortint::ServerKey>,
+    vote_data: HashMap<i32, Ciphertext>,
 }
 
 #[derive(Serialize)]
 struct RegisterResponse {
     client_key: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+struct VoteRequestPath {
+    vote_id: i32,
+}
+
+#[derive(Deserialize)]
+struct VoteRequest {
+    vote: Vec<u8>,
+}
+
+#[derive(Serialize)]
+struct VoteResponse {
+    msg: String,
+    result_enc: Vec<u8>,
+    result_dec: Vec<u8>,
 }
 
 #[get("/")]
@@ -33,14 +56,59 @@ async fn registration(data: web::Data<AppState>) -> Result<web::Json<RegisterRes
     Ok(web::Json(RegisterResponse { client_key: bytes }))
 }
 
+#[post("api/v1/vote/{vote_id}")]
+async fn vote(
+    data: web::Data<AppState>,
+    path: web::Path<VoteRequestPath>,
+    vote_payload: web::Json<VoteRequest>,
+) -> Result<web::Json<VoteResponse>> {
+    let vote_id = path.into_inner().vote_id;
+    let vote_vec = vote_payload.into_inner().vote;
+
+    let (vote, _): (Ciphertext, usize) = decode_from_slice::<Ciphertext, _>(&vote_vec, standard())
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let vote_data_arc = &data.vote_data;
+    let server_key = &data.server_key;
+    let client_key = &data.client_key;
+
+    let current_vote = vote_data_arc
+        .get(&vote_id)
+        .ok_or_else(|| actix_web::error::ErrorNotFound("Vote ID not found"))?;
+
+    let result = server_key.add(&current_vote.clone(), &vote);
+
+    &data.vote_data.insert(vote_id.clone(), result.clone());
+
+    let result_enc =
+        encode_to_vec(&result, standard()).map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let r_dec = client_key.decrypt(&result);
+
+    let result_dec =
+        encode_to_vec(r_dec, standard()).map_err(actix_web::error::ErrorInternalServerError)?;
+
+    Ok(web::Json(VoteResponse {
+        msg: "Your have voted".to_string(),
+        result_enc: result_enc,
+        result_dec: result_dec,
+    }))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
-    set_server_key(server_key);
+    let (client_key, server_key) = gen_keys(PARAM_MESSAGE_2_CARRY_2_KS_PBS);
+    // set_server_key(server_key);
+
+    let mut start_votes: HashMap<i32, Ciphertext> = HashMap::new();
+    let zero = client_key.encrypt(0);
+    start_votes.insert(0, zero.clone());
+    start_votes.insert(1, zero.clone());
 
     let app_state = web::Data::new(AppState {
         client_key: Arc::new(client_key),
+        server_key: Arc::new(server_key),
+        vote_data: start_votes,
     });
 
     HttpServer::new(move || {
@@ -57,6 +125,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(app_state.clone())
             .service(root)
             .service(registration)
+            .service(vote)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
