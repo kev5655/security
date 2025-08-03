@@ -3,6 +3,7 @@ use actix_web::Result;
 use actix_web::middleware::Logger;
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 
+// use bincode::{decode_from_slice, encode_to_vec};
 use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2_KS_PBS;
 use tfhe::shortint::{Ciphertext, ClientKey, ServerKey, gen_keys};
 
@@ -16,10 +17,11 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 struct AppState {
     client_key: Arc<tfhe::shortint::ClientKey>,
     server_key: Arc<tfhe::shortint::ServerKey>,
-    vote_data: HashMap<i32, Ciphertext>,
+    vote_data: Mutex<HashMap<i32, Ciphertext>>,
 }
 
 #[derive(Serialize)]
@@ -73,12 +75,18 @@ async fn vote(
     let client_key = &data.client_key;
 
     let current_vote = vote_data_arc
+        .lock()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Mutex poisoned"))?
         .get(&vote_id)
-        .ok_or_else(|| actix_web::error::ErrorNotFound("Vote ID not found"))?;
+        .ok_or_else(|| actix_web::error::ErrorNotFound("Vote ID not found"))?
+        .clone();
 
-    let result = server_key.add(&current_vote.clone(), &vote);
+    let result = server_key.add(&current_vote, &vote);
 
-    &data.vote_data.insert(vote_id.clone(), result.clone());
+    data.vote_data
+        .lock()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Mutex poisoned"))?
+        .insert(vote_id, result.clone());
 
     let result_enc =
         encode_to_vec(&result, standard()).map_err(actix_web::error::ErrorInternalServerError)?;
@@ -108,7 +116,7 @@ async fn main() -> std::io::Result<()> {
     let app_state = web::Data::new(AppState {
         client_key: Arc::new(client_key),
         server_key: Arc::new(server_key),
-        vote_data: start_votes,
+        vote_data: Mutex::new(start_votes),
     });
 
     HttpServer::new(move || {
