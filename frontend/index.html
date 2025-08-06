@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body>
+    <input type="number" placeholder="Type something...">
+    <button id="sendBtn">Send</button>
+    <a id="output"></a>
+
+    <script type="module">
+        // import init, { encrypt } from "./pkg/my_wasm_lib.js";
+        import init, {
+            Shortint,
+            ShortintParameters,
+            ShortintParametersName,
+        } from "./node_modules/tfhe/tfhe.js";
+
+        await init();
+        // await initThreadPool(navigator.hardwareConcurrency);
+        // await init_panic_hook();
+
+        // // Prepare your Shortint parameters
+        // const params = new ShortintParameters(
+        //     ShortintParametersName.PARAM_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M128
+        // );
+
+        // Get the client key from the server
+        let clientKey;
+        try {
+            const resp = await fetch("http://localhost:8080/api/v1/registration");
+            const { client_key: ckArray } = await resp.json();
+            console.log("Client key received, type:", typeof ckArray, "length:", ckArray.length);
+
+            // Ensure we have a proper Uint8Array
+            const keyData = new Uint8Array(ckArray);
+            clientKey = Shortint.deserialize_client_key(keyData);
+            console.log("Client key successfully deserialized");
+        } catch (error) {
+            console.error("Error processing client key:", error);
+        }
+
+        // Encrypt on button click
+        document.getElementById("sendBtn").addEventListener("click", async () => {
+            const x = Number(document.querySelector('input[type="number"]').value);
+            // TFHE wants BigInts
+            const ct = Shortint.encrypt(clientKey, BigInt(x));
+            // serialize to bytes for transport or display
+            const serialized = Shortint.serialize_ciphertext(ct);
+
+            await fetch("http://localhost:8080/api/v1/vote/0", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ vote: Array.from(serialized) })
+            })
+        });
+    </script>
+</body>
+
+</html>
