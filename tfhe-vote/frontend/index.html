@@ -21,44 +21,131 @@
         } from "./node_modules/tfhe/tfhe.js";
 
         await init();
-        // await initThreadPool(navigator.hardwareConcurrency);
-        // await init_panic_hook();
 
-        // // Prepare your Shortint parameters
-        // const params = new ShortintParameters(
-        //     ShortintParametersName.PARAM_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M128
-        // );
-
-        // Get the client key from the server
+        // Get the seed value from the server to generate the same client key
         let clientKey;
         try {
+            console.log("Fetching seed from server...");
             const resp = await fetch("http://localhost:8080/api/v1/registration");
-            const { client_key: ckArray } = await resp.json();
-            console.log("Client key received, type:", typeof ckArray, "length:", ckArray.length);
 
-            // Ensure we have a proper Uint8Array
-            const keyData = new Uint8Array(ckArray);
-            clientKey = Shortint.deserialize_client_key(keyData);
-            console.log("Client key successfully deserialized");
+            if (!resp.ok) {
+                throw new Error(`HTTP error! status: ${resp.status}`);
+            }
+
+            const jsonData = await resp.json();
+            const { seed } = jsonData;
+
+            console.log("Seed received:", seed);
+
+            if (!seed) {
+                throw new Error("No seed received from server");
+            }
+
+            // Use the same seed to generate the client key deterministically
+            console.log("Generating client key from seed...");
+
+            // Keep the seed as a BigInt for the whole process
+            const seedBigInt = BigInt(seed);
+            // Split the seed into high and low u64 values for the API
+            const seedLowBytes = seedBigInt & BigInt("0xFFFFFFFFFFFFFFFF");
+            const seedHighBytes = seedBigInt >> BigInt(64);
+
+            console.log("Seed high bytes:", seedHighBytes.toString());
+            console.log("Seed low bytes:", seedLowBytes.toString());
+
+            // Define the parameters - MUST match the backend parameters
+            const params = new ShortintParameters(ShortintParametersName.PARAM_MESSAGE_2_CARRY_2_KS_PBS);
+
+            // Generate the client key using the seed and parameters - pass BigInts directly
+            clientKey = Shortint.new_client_key_from_seed_and_parameters(
+                seedHighBytes,
+                seedLowBytes,
+                params
+            );
+            console.log("Client key successfully generated from seed");
+
         } catch (error) {
-            console.error("Error processing client key:", error);
+            console.error("Error processing client key:", error, error.stack);
+            // Add more detailed error logging
+            if (error.message && error.message.includes("Custom")) {
+                console.error("This may be a format mismatch between the backend serialization and frontend deserialization");
+            }
         }
 
         // Encrypt on button click
         document.getElementById("sendBtn").addEventListener("click", async () => {
-            const x = Number(document.querySelector('input[type="number"]').value);
-            // TFHE wants BigInts
-            const ct = Shortint.encrypt(clientKey, BigInt(x));
-            // serialize to bytes for transport or display
-            const serialized = Shortint.serialize_ciphertext(ct);
+            try {
+                if (!clientKey) {
+                    throw new Error("No client key available. Please reload the page.");
+                }
 
-            await fetch("http://localhost:8080/api/v1/vote/0", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ vote: Array.from(serialized) })
-            })
+                const x = Number(document.querySelector('input[type="number"]').value);
+                console.log("Encrypting value:", x);
+
+                // TFHE wants BigInts for encryption
+                console.log("Encrypting value on client side:", x);
+
+                // Create a ciphertext using the client key - proper FHE approach
+                const ct = Shortint.encrypt(clientKey, BigInt(x));
+                console.log("Created ciphertext object:", ct);
+
+                // Detailed debugging of the ciphertext object
+                console.log("Ciphertext type:", typeof ct);
+                console.log("Ciphertext properties:", Object.getOwnPropertyNames(ct));
+
+                // Try getting a different serialization - let's see if this one works with bincode
+                // We'll try using the default serialization mechanism of TFHE-JS
+                console.log("Using TFHE serialize_ciphertext for bincode compatibility");
+                const serialized = Shortint.serialize_ciphertext(ct);
+                console.log("Serialized type:", typeof serialized);
+                console.log("Serialized length:", serialized.length);
+
+                // Get exact array details for debugging
+                const typedArray = new Uint8Array(serialized);
+                console.log("First 20 bytes:", Array.from(typedArray.slice(0, 20)));
+
+                // Base64 encode for JSON transport
+                const base64Encoded = btoa(String.fromCharCode(...typedArray));
+                console.log("Base64 encoded length:", base64Encoded.length);
+
+                // Add a flag to indicate if we want to diagnose serialization issues
+                const diagnoseMode = true;
+
+                const response = await fetch("http://localhost:8080/api/v1/vote/0", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        vote: base64Encoded,
+                        metadata: {
+                            original_length: serialized.length,
+                            first_bytes: Array.from(typedArray.slice(0, 8)),
+                            diagnose_mode: diagnoseMode,
+                            raw_value: x // Send the raw value for diagnostic purposes
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log("Vote result:", result);
+
+                // Display the decrypted result
+                const decryptedValue = result.result_dec[0];
+                console.log("Current tally:", decryptedValue);
+
+                // Update UI
+                document.getElementById("output").textContent = `Vote submitted successfully! Current tally: ${decryptedValue}`;
+                document.getElementById("output").style.color = "green";
+            } catch (error) {
+                console.error("Error sending vote:", error);
+                document.getElementById("output").textContent = "Error: " + error.message;
+                document.getElementById("output").style.color = "red";
+            }
         });
     </script>
 </body>
