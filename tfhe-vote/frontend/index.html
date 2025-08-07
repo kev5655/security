@@ -4,127 +4,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>TFHE Secure Voting System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .vote-container {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        input,
+        button {
+            padding: 8px;
+            margin: 5px 0;
+        }
+    </style>
 </head>
 
 <body>
-    <input type="number" placeholder="Type something...">
-    <button id="sendBtn">Send</button>
-    <a id="output"></a>
+    <h1>TFHE Secure Voting System</h1>
+    <div id="initStatus"></div>
+
+    <div class="vote-container">
+        <h2>Cast Your Vote</h2>
+        <p>Enter a value to add to the vote count:</p>
+        <input type="number" id="voteValue" placeholder="Enter a value..." min="0" max="3">
+        <button id="sendBtn" disabled>Send Vote</button>
+        <div id="output" class="status"></div>
+    </div>
 
     <script type="module">
-        // import init, { encrypt } from "./pkg/my_wasm_lib.js";
         import init, {
-            Shortint,
-            ShortintParameters,
-            ShortintParametersName,
-        } from "./node_modules/tfhe/tfhe.js";
+            generate_client_key_from_seed,
+            encrypt_data,
+            decrypt_data
+        } from "./pkg/my_wasm_lib.js";
 
-        await init();
-
-        // Get the seed value from the server to generate the same client key
         let clientKey;
-        try {
-            console.log("Fetching seed from server...");
-            const resp = await fetch("http://localhost:8080/api/v1/registration");
+        let initStatusEl = document.getElementById("initStatus");
+        let voteBtn = document.getElementById("sendBtn");
 
-            if (!resp.ok) {
-                throw new Error(`HTTP error! status: ${resp.status}`);
+        // Initialize WebAssembly module
+        async function initialize() {
+            try {
+                initStatusEl.textContent = "Initializing WebAssembly module...";
+                await init();
+                initStatusEl.textContent = "WebAssembly module initialized! Fetching seed from server...";
+
+                // Get the seed from the server
+                await fetchSeedAndGenerateKey();
+            } catch (error) {
+                console.error("Initialization error:", error);
+                initStatusEl.textContent = "Error initializing: " + error.message;
+                initStatusEl.className = "status error";
             }
-
-            const jsonData = await resp.json();
-            const { seed } = jsonData;
-
-            console.log("Seed received:", seed);
-
-            if (!seed) {
-                throw new Error("No seed received from server");
-            }
-
-            // Use the same seed to generate the client key deterministically
-            console.log("Generating client key from seed...");
-
-            // Keep the seed as a BigInt for the whole process
-            const seedBigInt = BigInt(seed);
-            // Split the seed into high and low u64 values for the API
-            const seedLowBytes = seedBigInt & BigInt("0xFFFFFFFFFFFFFFFF");
-            const seedHighBytes = seedBigInt >> BigInt(64);
-
-            // Define the parameters - MUST match the backend parameters
-            const params = new ShortintParameters(ShortintParametersName.PARAM_MESSAGE_2_CARRY_2_KS_PBS);
-
-            // Generate the client key using the seed and parameters - pass BigInts directly
-            clientKey = Shortint.new_client_key_from_seed_and_parameters(
-                seedHighBytes,
-                seedLowBytes,
-                params
-            );
-            console.log("Client key successfully generated from seed");
-
-        } catch (error) {
-            console.error("Error processing client key:", error);
         }
 
-        // Encrypt on button click
-        document.getElementById("sendBtn").addEventListener("click", async () => {
+        // Fetch seed from server and generate client key
+        async function fetchSeedAndGenerateKey() {
             try {
-                if (!clientKey) {
+                const resp = await fetch("http://localhost:8080/api/v1/registration");
+
+                if (!resp.ok) {
+                    throw new Error(`Server error! status: ${resp.status}`);
+                }
+
+                const { seed } = await resp.json();
+                console.log("Seed received:", seed);
+
+                if (!seed) {
+                    throw new Error("No seed received from server");
+                }
+
+                // Generate client key using our Rust WebAssembly function
+                initStatusEl.textContent = "Generating client key from seed...";
+                clientKey = generate_client_key_from_seed(BigInt(seed));
+
+                if (clientKey.length === 0) {
+                    throw new Error("Failed to generate client key");
+                }
+
+                console.log("Client key generated successfully");
+                initStatusEl.textContent = "Ready to cast votes!";
+                initStatusEl.className = "status success";
+                voteBtn.disabled = false;
+            } catch (error) {
+                console.error("Error generating client key:", error);
+                initStatusEl.textContent = "Error initializing encryption: " + error.message;
+                initStatusEl.className = "status error";
+            }
+        }
+
+        // Initialize the application
+        initialize();
+
+        // Send vote when button is clicked
+        document.getElementById("sendBtn").addEventListener("click", async () => {
+            const outputEl = document.getElementById("output");
+            outputEl.textContent = "Processing vote...";
+            outputEl.className = "status";
+
+            try {
+                if (!clientKey || clientKey.length === 0) {
                     throw new Error("No client key available. Please reload the page.");
                 }
 
-                const x = Number(document.querySelector('input[type="number"]').value);
+                const voteValue = Number(document.getElementById("voteValue").value);
 
-                // TFHE wants BigInts for encryption
-                console.log("Encrypting value on client side:", x);
+                if (isNaN(voteValue) || voteValue < 0 || voteValue > 3) {
+                    throw new Error("Please enter a value between 0 and 3.");
+                }
 
-                // Create a ciphertext using the client key - proper FHE approach
-                const ct = Shortint.encrypt(clientKey, BigInt(x));
-                console.log("Created ciphertext object:", ct);
+                console.log("Encrypting value:", voteValue);
 
-                // Serialize the ciphertext for transport
-                const serialized = Shortint.serialize_ciphertext(ct);
+                // Encrypt the vote using our Rust WebAssembly function
+                const encryptedVote = encrypt_data(voteValue, clientKey);
 
-                // Convert to typed array for processing
-                const typedArray = new Uint8Array(serialized);
+                console.log("Sending encrypted vote to server");
 
-                // Base64 encode for JSON transport
-                const base64Encoded = btoa(String.fromCharCode(...typedArray));
-
-                // Set diagnose mode to true for compatibility
-                const diagnoseMode = true;
-
+                // Send the encrypted vote to the server
                 const response = await fetch("http://localhost:8080/api/v1/vote/0", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        vote: base64Encoded,
-                        metadata: {
-                            diagnose_mode: diagnoseMode,
-                            raw_value: x // Send the raw value for diagnostic purposes
-                        }
+                        vote: Array.from(encryptedVote)
                     })
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(`Server error! status: ${response.status}`);
                 }
 
                 const result = await response.json();
                 console.log("Vote result:", result);
 
-                // Display the decrypted result
-                const decryptedValue = result.result_dec[0];
-                console.log("Current tally:", decryptedValue);
+                // Get the encrypted result from base64
+                const base64ToArrayBuffer = base64String => {
+                    const binaryString = atob(base64String);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    return bytes;
+                };
+
+                // Convert the base64 encrypted result to binary
+                const encryptedResult = base64ToArrayBuffer(result.result_enc);
+
+                // Decrypt the result using our client key
+                const decryptedValue = decrypt_data(encryptedResult, clientKey);
+                console.log("Decrypted tally:", decryptedValue);
 
                 // Update UI
-                document.getElementById("output").textContent = `Vote submitted successfully! Current tally: ${decryptedValue}`;
-                document.getElementById("output").style.color = "green";
+                outputEl.textContent = `Vote submitted successfully! Current tally: ${decryptedValue}`;
+                outputEl.className = "status success";
             } catch (error) {
                 console.error("Error sending vote:", error);
-                document.getElementById("output").textContent = "Error: " + error.message;
-                document.getElementById("output").style.color = "red";
+                outputEl.textContent = "Error: " + error.message;
+                outputEl.className = "status error";
             }
         });
     </script>

@@ -34,17 +34,8 @@ struct VoteRequestPath {
 }
 
 #[derive(Deserialize, Debug)]
-struct VoteMetadata {
-    #[serde(default)]
-    diagnose_mode: bool,
-    #[serde(default)]
-    raw_value: u8,
-}
-
-#[derive(Deserialize, Debug)]
 struct VoteRequest {
-    vote: String, // Base64 encoded serialized ciphertext
-    metadata: VoteMetadata,
+    vote: Vec<u8>, // Base64 encoded serialized ciphertext
 }
 
 #[derive(Serialize)]
@@ -77,93 +68,108 @@ async fn vote(
     path: web::Path<VoteRequestPath>,
     vote_payload: web::Json<VoteRequest>,
 ) -> Result<web::Json<VoteResponse>> {
-    println!("Vote endpoint handler called - starting processing");
     let vote_id = path.into_inner().vote_id;
+    println!("Extracting vote data for ID: {}", vote_id);
     let payload = vote_payload.into_inner();
-    let base64_vote = payload.vote;
-    let metadata = payload.metadata;
+    let vec8_vote = payload.vote;
 
-    // Decode base64 to binary
-    let vote_vec = match BASE64.decode(base64_vote) {
-        Ok(data) => data,
-        Err(e) => {
-            return Err(actix_web::error::ErrorInternalServerError(format!(
-                "Base64 decoding error: {:?}",
-                e
-            )));
-        }
-    };
-
-    // Try to deserialize the ciphertext
-    let deserialization_result =
-        bincode::serde::decode_from_slice::<Ciphertext, _>(&vote_vec, standard());
-
-    // Get the ciphertext or try diagnostic mode if deserialization fails
-    let vote = match deserialization_result {
-        Ok((ciphertext, _)) => ciphertext,
-        Err(e) => {
-            // Check if we're in diagnostic mode
-            if metadata.diagnose_mode {
-                // Create a new ciphertext from the raw value using the client key
-                let client_key = &data.client_key;
-                let diagnostic_ciphertext = client_key.encrypt(metadata.raw_value as u64);
-                diagnostic_ciphertext
-            } else {
-                // Provide error information
-                let error_msg = format!("Deserialization error: {:?}", e);
-                // Return a 400 Bad Request with error info
-                return Err(actix_web::error::ErrorBadRequest(error_msg));
-            }
-        }
-    };
-
-    let vote_data_arc = &data.vote_data;
-    let server_key = &data.server_key;
+    // Get references to application state
     let client_key = &data.client_key;
+    let server_key = &data.server_key;
+    let vote_data_mutex = &data.vote_data;
 
-    let current_vote = vote_data_arc
+    println!("Processing vote for ID: {}", vote_id);
+    println!(
+        "First 10 bytes of received vote data: {:?}",
+        vec8_vote.iter().take(10).collect::<Vec<_>>()
+    );
+
+    let vote_ciphertext = process_vote_data(vec8_vote)?;
+
+    println!("Retrieving current vote for ID: {}", vote_id);
+    let current_vote = get_current_vote(vote_data_mutex, vote_id)?;
+
+    println!("Adding new vote to current tally for ID: {}", vote_id);
+    let result = server_key.add(&current_vote, &vote_ciphertext);
+
+    // Update the vote data in storage
+    update_vote_data(vote_data_mutex, vote_id, result.clone())?;
+
+    // Prepare the response with encrypted and decrypted results
+    let result_enc = serialize_result(&result)?;
+    let result_dec = vec![client_key.decrypt(&result) as u8];
+
+    Ok(web::Json(VoteResponse {
+        msg: "Your vote has been counted".to_string(),
+        result_enc,
+        result_dec,
+    }))
+}
+
+// Helper function to process the vote data from the request
+fn process_vote_data(vec8_vote: Vec<u8>) -> Result<Ciphertext> {
+    // Try to deserialize the ciphertext
+    println!("Processing raw vote data with length: {}", vec8_vote.len());
+
+    // Deserialize using bincode
+    let deserialization_result =
+        bincode::serde::decode_from_slice::<Ciphertext, _>(&vec8_vote, standard());
+
+    // Get the ciphertext or return an error if deserialization fails
+    match deserialization_result {
+        Ok((ciphertext, _)) => {
+            println!("Deserialization successful!");
+            Ok(ciphertext)
+        }
+        Err(e) => {
+            println!("Deserialization error: {:?}", e);
+            Err(actix_web::error::ErrorBadRequest(format!(
+                "Deserialization error: {:?}",
+                e
+            )))
+        }
+    }
+}
+
+// Helper function to get the current vote count
+fn get_current_vote(
+    vote_data_mutex: &Mutex<HashMap<i32, Ciphertext>>,
+    vote_id: i32,
+) -> Result<Ciphertext> {
+    vote_data_mutex
         .lock()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Mutex poisoned"))?
         .get(&vote_id)
-        .ok_or_else(|| actix_web::error::ErrorNotFound("Vote ID not found"))?
-        .clone();
+        .ok_or_else(|| actix_web::error::ErrorNotFound("Vote ID not found"))
+        .map(|v| v.clone())
+}
 
-    println!("Adding vote to current tally for vote_id: {}", vote_id);
-    let result = server_key.add(&current_vote, &vote);
-
-    data.vote_data
+// Helper function to update the vote data
+fn update_vote_data(
+    vote_data_mutex: &Mutex<HashMap<i32, Ciphertext>>,
+    vote_id: i32,
+    result: Ciphertext,
+) -> Result<()> {
+    vote_data_mutex
         .lock()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Mutex poisoned"))?
-        .insert(vote_id, result.clone());
+        .insert(vote_id, result);
 
-    // Use bincode for serialization of the result
-    let result_enc = match encode_to_vec(&result, standard()) {
+    Ok(())
+}
+
+// Helper function to serialize the result
+fn serialize_result(result: &Ciphertext) -> Result<String> {
+    match encode_to_vec(result, standard()) {
         Ok(encoded) => {
             // Convert to base64 for JSON transport
-            let base64_result = BASE64.encode(&encoded);
-            base64_result
+            Ok(BASE64.encode(&encoded))
         }
-        Err(e) => {
-            return Err(actix_web::error::ErrorInternalServerError(format!(
-                "Serialization error: {:?}",
-                e
-            )));
-        }
-    };
-
-    // Decrypt the result to get the current count
-    let r_dec = client_key.decrypt(&result);
-    println!("Decrypted result: {}", r_dec);
-
-    // For result_dec, just use a simple JSON-serializable representation
-    let result_dec = vec![r_dec as u8];
-
-    println!("Vote processing completed. Sending response.");
-    Ok(web::Json(VoteResponse {
-        msg: "Your vote has been counted".to_string(),
-        result_enc: result_enc,
-        result_dec: result_dec,
-    }))
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(format!(
+            "Serialization error: {:?}",
+            e
+        ))),
+    }
 }
 
 #[actix_web::main]
@@ -178,13 +184,11 @@ async fn main() -> std::io::Result<()> {
     // Create a deterministic seeder with the seed
     let mut deterministic_seeder = DeterministicSeeder::<DefaultRandomGenerator>::new(seed);
 
-    println!("Generating client key...");
     // Generate the client key using the seeder
     let client_key =
         tfhe::shortint::engine::ShortintEngine::new_from_seeder(&mut deterministic_seeder)
             .new_client_key(PARAM_MESSAGE_2_CARRY_2_KS_PBS);
 
-    println!("Generating server key...");
     // Generate the server key from the client key
     let server_key = tfhe::shortint::ServerKey::new(&client_key);
 
@@ -198,6 +202,8 @@ async fn main() -> std::io::Result<()> {
         server_key: Arc::new(server_key),
         vote_data: Mutex::new(start_votes),
     });
+
+    print!("Server is ready\n");
 
     HttpServer::new(move || {
         App::new()
