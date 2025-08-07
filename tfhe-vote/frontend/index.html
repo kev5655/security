@@ -50,9 +50,6 @@
             const seedLowBytes = seedBigInt & BigInt("0xFFFFFFFFFFFFFFFF");
             const seedHighBytes = seedBigInt >> BigInt(64);
 
-            console.log("Seed high bytes:", seedHighBytes.toString());
-            console.log("Seed low bytes:", seedLowBytes.toString());
-
             // Define the parameters - MUST match the backend parameters
             const params = new ShortintParameters(ShortintParametersName.PARAM_MESSAGE_2_CARRY_2_KS_PBS);
 
@@ -65,11 +62,7 @@
             console.log("Client key successfully generated from seed");
 
         } catch (error) {
-            console.error("Error processing client key:", error, error.stack);
-            // Add more detailed error logging
-            if (error.message && error.message.includes("Custom")) {
-                console.error("This may be a format mismatch between the backend serialization and frontend deserialization");
-            }
+            console.error("Error processing client key:", error);
         }
 
         // Encrypt on button click
@@ -80,7 +73,6 @@
                 }
 
                 const x = Number(document.querySelector('input[type="number"]').value);
-                console.log("Encrypting value:", x);
 
                 // TFHE wants BigInts for encryption
                 console.log("Encrypting value on client side:", x);
@@ -89,26 +81,16 @@
                 const ct = Shortint.encrypt(clientKey, BigInt(x));
                 console.log("Created ciphertext object:", ct);
 
-                // Detailed debugging of the ciphertext object
-                console.log("Ciphertext type:", typeof ct);
-                console.log("Ciphertext properties:", Object.getOwnPropertyNames(ct));
-
-                // Try getting a different serialization - let's see if this one works with bincode
-                // We'll try using the default serialization mechanism of TFHE-JS
-                console.log("Using TFHE serialize_ciphertext for bincode compatibility");
+                // Serialize the ciphertext for transport
                 const serialized = Shortint.serialize_ciphertext(ct);
-                console.log("Serialized type:", typeof serialized);
-                console.log("Serialized length:", serialized.length);
 
-                // Get exact array details for debugging
+                // Convert to typed array for processing
                 const typedArray = new Uint8Array(serialized);
-                console.log("First 20 bytes:", Array.from(typedArray.slice(0, 20)));
 
                 // Base64 encode for JSON transport
                 const base64Encoded = btoa(String.fromCharCode(...typedArray));
-                console.log("Base64 encoded length:", base64Encoded.length);
 
-                // Add a flag to indicate if we want to diagnose serialization issues
+                // Set diagnose mode to true for compatibility
                 const diagnoseMode = true;
 
                 const response = await fetch("http://localhost:8080/api/v1/vote/0", {
@@ -119,8 +101,6 @@
                     body: JSON.stringify({
                         vote: base64Encoded,
                         metadata: {
-                            original_length: serialized.length,
-                            first_bytes: Array.from(typedArray.slice(0, 8)),
                             diagnose_mode: diagnoseMode,
                             raw_value: x // Send the raw value for diagnostic purposes
                         }
