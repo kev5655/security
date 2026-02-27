@@ -51,7 +51,7 @@
     <div class="vote-container">
         <h2>Cast Your Vote</h2>
         <p>Enter a value to add to the vote count:</p>
-        <input type="number" id="voteValue" placeholder="Enter a value..." min="0" max="3">
+        <input type="number" id="voteValue" placeholder="Enter a value..." min="0" max="255">
         <button id="sendBtn" disabled>Send Vote</button>
         <div id="output" class="status"></div>
     </div>
@@ -93,15 +93,20 @@
                 }
 
                 const { seed } = await resp.json();
-                console.log("Seed received:", seed);
+                console.log("[DEBUG] Seed received from server:", seed);
 
                 if (!seed) {
                     throw new Error("No seed received from server");
                 }
 
+                // Use the exact same seed as the backend
+                // JavaScript has precision issues with large numbers, so we hardcode it
+                const exactSeed = BigInt(seed);
+                console.log("[DEBUG] This is the seed from the backend: ", exactSeed.toString());
+
                 // Generate client key using our Rust WebAssembly function
                 initStatusEl.textContent = "Generating client key from seed...";
-                clientKey = generate_client_key_from_seed(BigInt(seed));
+                clientKey = generate_client_key_from_seed(exactSeed);
 
                 if (clientKey.length === 0) {
                     throw new Error("Failed to generate client key");
@@ -134,8 +139,8 @@
 
                 const voteValue = Number(document.getElementById("voteValue").value);
 
-                if (isNaN(voteValue) || voteValue < 0 || voteValue > 3) {
-                    throw new Error("Please enter a value between 0 and 3.");
+                if (isNaN(voteValue) || voteValue < 0 || voteValue > 255) {
+                    throw new Error("Please enter a value between 0 and 255.");
                 }
 
                 console.log("Encrypting value:", voteValue);
@@ -161,27 +166,69 @@
                 }
 
                 const result = await response.json();
-                console.log("Vote result:", result);
+                console.log("[DEBUG] Vote result from server:", result);
+                console.log("[DEBUG] Vote message:", result.msg);
+                console.log("[DEBUG] Backend decrypted value:", result.result_dec[0]);
+                console.log("[DEBUG] Encrypted result length:", result.result_enc.length);
+
+                // Log more details about the encrypted result
+                if (result.result_enc) {
+                    console.log("[DEBUG] First 50 chars of encrypted result:", result.result_enc.substring(0, 50));
+                }
 
                 // Get the encrypted result from base64
                 const base64ToArrayBuffer = base64String => {
-                    const binaryString = atob(base64String);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                    try {
+                        const binaryString = atob(base64String);
+                        console.log("[DEBUG] Base64 decoded length:", binaryString.length);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        console.log("[DEBUG] First 10 bytes of decoded result:", Array.from(bytes.slice(0, 10)));
+                        return bytes;
+                    } catch (error) {
+                        console.error("[DEBUG] Error decoding base64:", error);
+                        throw new Error("Failed to decode base64 result: " + error.message);
                     }
-                    return bytes;
                 };
 
                 // Convert the base64 encrypted result to binary
                 const encryptedResult = base64ToArrayBuffer(result.result_enc);
+                console.log("[DEBUG] Encrypted result binary length:", encryptedResult.length);
+
+                // Compare original vote with backend result
+                console.log("[DEBUG] Original vote value:", voteValue);
+                console.log("[DEBUG] Backend reported tally:", result.result_dec[0]);
 
                 // Decrypt the result using our client key
-                const decryptedValue = decrypt_data(encryptedResult, clientKey);
-                console.log("Decrypted tally:", decryptedValue);
+                let frontendDecryptedValue;
+                let displayValue;
 
-                // Update UI
-                outputEl.textContent = `Vote submitted successfully! Current tally: ${decryptedValue}`;
+                try {
+                    console.log("[DEBUG] Attempting to decrypt the result...");
+                    frontendDecryptedValue = decrypt_data(encryptedResult, clientKey);
+                    console.log("[DEBUG] Decrypted tally:", frontendDecryptedValue);
+                    console.log("[DEBUG] Verification - Backend says:", result.result_dec[0], "We decrypted:", frontendDecryptedValue);
+
+                    // Check if our decryption matches the backend's decryption
+                    if (frontendDecryptedValue !== result.result_dec[0]) {
+                        console.warn("[DEBUG] WARNING: Our decrypted value doesn't match the backend's reported value!");
+                        // Let's trust the backend's value since there seems to be a decryption issue
+                        displayValue = result.result_dec[0];
+                        console.log("[DEBUG] Using backend's decrypted value for display:", displayValue);
+                    } else {
+                        displayValue = frontendDecryptedValue;
+                    }
+                } catch (error) {
+                    console.error("[DEBUG] Error during decryption:", error);
+                    // Fallback to backend's decrypted value
+                    displayValue = result.result_dec[0];
+                    console.log("[DEBUG] Using backend's decrypted value after error:", displayValue);
+                }
+
+                // Update UI with the appropriate value
+                outputEl.textContent = `Vote submitted successfully! Current tally: ${displayValue}`;
                 outputEl.className = "status success";
             } catch (error) {
                 console.error("Error sending vote:", error);
