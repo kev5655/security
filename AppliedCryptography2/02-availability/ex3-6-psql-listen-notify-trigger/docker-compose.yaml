@@ -1,0 +1,84 @@
+services:
+  # --- THE SMART PROXY (Pgpool-II Official) ---
+  pgpool:
+    image: pgpool/pgpool:latest
+    ports:
+      - "9999:5432"
+    environment:
+      - PGPOOL_BACKENDS=0:master:5432,1:replica1:5432,2:replica2:5432
+      - PGPOOL_SR_CHECK_USER=admin
+      - PGPOOL_SR_CHECK_PASSWORD=admin
+      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      - PGPOOL_POSTGRES_USERNAME=admin
+      - PGPOOL_POSTGRES_PASSWORD=admin
+      - PGPOOL_ADMIN_USERNAME=admin
+      - PGPOOL_ADMIN_PASSWORD=admin
+    depends_on:
+      - master
+      - replica1
+      - replica2
+
+  # --- THE MASTER NODE ---
+  master:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=testdb
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    # We pass the strict synchronous replication rules directly into the boot command
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c synchronous_commit=on
+      -c synchronous_standby_names='ANY 1 (replica1, replica2)'
+    volumes:
+      - master_data:/var/lib/postgresql/data
+      # Mount our two init scripts!
+      - ./01-init.sh:/docker-entrypoint-initdb.d/01-init.sh
+      - ./02-schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
+
+  # --- REPLICA 1 ---
+  replica1:
+    image: postgres:16
+    depends_on:
+      - master
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    # This command waits for master, clones the data using pg_basebackup, and starts the replica
+    command: >
+      bash -c "
+      until pg_isready -h master -p 5432; do echo 'Waiting for master...'; sleep 2; done;
+      if [ -z \"\$$(ls -A $$PGDATA)\" ]; then
+        echo 'Bootstrapping replica1...';
+        pg_basebackup -d 'host=master port=5432 user=repluser password=replpassword application_name=replica1' -D $$PGDATA -vP -w -R;
+      fi;
+      exec postgres
+      "
+    volumes:
+      - replica1_data:/var/lib/postgresql/data
+
+  # --- REPLICA 2 ---
+  replica2:
+    image: postgres:16
+    depends_on:
+      - master
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    command: >
+      bash -c "
+      until pg_isready -h master -p 5432; do echo 'Waiting for master...'; sleep 2; done;
+      if [ -z \"\$$(ls -A $$PGDATA)\" ]; then
+        echo 'Bootstrapping replica2...';
+        pg_basebackup -d 'host=master port=5432 user=repluser password=replpassword application_name=replica2' -D $$PGDATA -vP -w -R;
+      fi;
+      exec postgres
+      "
+    volumes:
+      - replica2_data:/var/lib/postgresql/data
+
+volumes:
+  master_data:
+  replica1_data:
+  replica2_data:
