@@ -13,6 +13,7 @@ import (
 func main() {
 	// 1. Setup Plaintext (include null terminator to match C's sizeof("Hello world"))
 	plaintext := append([]byte("Hello world"), 0)
+	sign := "Here comes the signature"
 
 	// 2. Setup Key: 256 bits = 32 bytes of 'A'
 	key := bytes.Repeat([]byte{'A'}, 32)
@@ -35,7 +36,7 @@ func main() {
 	// 6. Encrypt the data
 	// Go's Seal function takes (dst, nonce, plaintext, additionalData)
 	// It appends the ciphertext AND the 16-byte authentication tag to dst.
-	ciphertextWithTag := aesgcm.Seal(nil, iv, plaintext, nil)
+	ciphertextWithTag := aesgcm.Seal(nil, iv, plaintext, []byte(sign))
 
 	for _, b := range ciphertextWithTag {
 		fmt.Printf("%02x", b)

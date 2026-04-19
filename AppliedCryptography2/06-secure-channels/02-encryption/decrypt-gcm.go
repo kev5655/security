@@ -14,7 +14,9 @@ import (
 func main() {
 	// 1. Read input from STDIN (Mimicking the C while(1) read loop)
 	// io.ReadAll handles the loop automatically until EOF.
-	inputHex := "bcd99d247dd7ef2fd9b0f4d941c8148158470854efcd0cb5312fbdd1"
+	// inputHex := "bcd99d247dd7ef2fd9b0f4d941c8148158470854efcd0cb5312fbdd1"
+	inputHex := "bcd99d247dd7ef2fd9b0f4d9e1e218bfd9a2aaafde80c130f136af50"
+	sign := "Here comes the signature"
 	inputData := make([]byte, len(inputHex)/2)
 	_, err := fmt.Sscanf(inputHex, "%x", &inputData)
 	if err != nil {
@@ -49,7 +51,7 @@ func main() {
 	// 5. Decrypt the data
 	// aesgcm.Open expects: (dst, nonce, ciphertext_with_tag, additionalData)
 	// If the tag at the end of 'inputData' is missing or invalid, this returns an error.
-	plaintext, err := aesgcm.Open(nil, iv, inputData, nil)
+	plaintext, err := aesgcm.Open(nil, iv, inputData, []byte(sign))
 	if err != nil {
 		log.Fatalf("Decryption failed (is the GCM tag missing or invalid?): %v\n", err)
 	}
